@@ -1,0 +1,137 @@
+.preload * {
+    -webkit-transition: none !important;
+    -moz-transition: none !important;
+    -ms-transition: none !important;
+    -o-transition: none !important;
+}
+
+html, body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    overflow: hidden;
+}
+
+#boardGame {
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, #007900 0%, #002a00 100%);
+    color: white;
+}
+
+#deck {
+    position: absolute;
+    top: 70px;
+    right: 70px;
+    width: 96px;
+    height: 144px;
+}
+
+#deckCardsNumber {
+    position: absolute;
+    top: 220px;
+    right: 105px;
+    color: black;
+    font-weight: bold;
+    font-size: 20px;
+}
+
+#dealerHand {
+    position: absolute;
+    top: 70px;
+    left: calc(100%/2 - 48px);
+    width: 96px;
+    height: 144px;
+}
+
+#playerHand {
+    position: absolute;
+    bottom: 70px;
+    left: calc(100%/2 - 48px);
+    width: 96px;
+    height: 144px;
+}
+
+.card {
+    position: absolute;
+    width: 96px;
+    height: 144px;
+    background-image: url(images/cards/card-back1.png);
+    transition: 0.7s;
+}
+
+#actions {
+    position: absolute;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    width: 150px;
+    height: 100%;
+    left: calc(100%/4 - 75px);
+}
+
+.actionButton {
+    width: 150px;
+    height: 75px;
+    background: #ffffff38;
+    border: 3px solid #1a1a1a;
+    border-radius: 20px;
+    font-size: 25px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.5s;
+    color: #1a1a1a;
+    font-family: Calibri;
+    margin: 10px 0;
+}
+
+.actionButton:not(.disabled):hover {
+    transform: scale(1.1) rotate(1deg);
+    background: #ffffff6b;
+}
+
+.actionButton:not(.disabled):active {
+    background: #ffffff91;
+    transform: scale(0.9) rotate(-2deg);
+    transition: 0.05s;
+}
+
+.actionButton.disabled {
+    cursor: default;
+    background: transparent;
+}
+
+.hand.hover > .card {
+    transform: scale(1.2) rotate(2deg);
+    box-shadow: black 2px -2px 10px;
+}
+
+#endMessage {
+    position: absolute;
+    width: 100%;
+    height: 50px;
+    text-align: center;
+    font-size: 50px;
+    font-weight: bold;
+    top: calc(100%/2 - 25px);
+    line-height: 50px;
+    transition: 0.5s;
+    color: #d40000;
+    text-shadow: black 2px 2px 3px;
+    transform: scale(0);
+}
+
+#score {
+    position: absolute;
+    width: 100%;
+    height: 50px;
+    text-align: center;
+    font-size: 50px;
+    font-weight: bold;
+    top: calc(100%/2 - 25px);
+    line-height: 50px;
+    transition: 0.5s;
+    color: #000000;
+    transform: scale(0);
+}
