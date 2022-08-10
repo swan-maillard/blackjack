@@ -6,10 +6,12 @@
 </head>
 <body class="preload">
 <div id="boardGame">
-    <div id="deck" class="card"></div>
-    <div id="deckCardsNumber"></div>
+    <div id="deck">
+        <div class="card backCard"></div>
+    </div>
     <div id="dealer">
-        <div id="dealerHand" class="hand"></div>
+        <div id="dealerHand" class="hand">
+        </div>
     </div>
     <div id="player">
         <div id="playerHand" class="hand"></div>
@@ -18,10 +20,13 @@
         <button id="standButton" class="actionButton disabled">RESTER</button>
         <button id="hitButton" class="actionButton disabled">TIRER</button>
         <button id="doubleButton" class="actionButton disabled">DOUBLER</button>
-        <button id="shareButton" class="actionButton disabled">PARTAGER</button>
+        <button id="splitButton" class="actionButton disabled">PARTAGER</button>
     </div>
     <div id="score"></div>
-    <div id="endMessage"></div>
+    <div id="money">
+        Capital : <span id="bankroll"></span><br>
+        Mise : <span id="bet"></span>
+    </div>
 </div>
 </body>
 </html>

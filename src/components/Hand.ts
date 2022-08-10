@@ -1,4 +1,5 @@
 import Card from "./Card";
+import Board from "./Board";
 
 export default class Hand {
     private readonly _cards: Card[];
@@ -19,19 +20,12 @@ export default class Hand {
 
     getScore(): number[] {
         let score = 0;
-        let nbAces = 0;
+        let isAce = false;
         this._cards.forEach(card => {
-            if (card.getScore() === 1) {
-                nbAces ++;
-            }
-            else {
-                score += card.getScore();
-            }
+            if (card.getScore() === 1) isAce = true;
+            score += card.getScore();
         });
 
-        if (nbAces > 0)
-            return [score+nbAces, score+nbAces+10];
-        else
-            return [score];
+        return (isAce ? (score === 11 ? [21] : [score, score+10]) : [score]);
     }
 }

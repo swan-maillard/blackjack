@@ -20,45 +20,56 @@ html, body {
     color: white;
 }
 
-#deck {
+.hand {
     position: absolute;
-    top: 70px;
-    right: 70px;
+    left: calc(100%/2 - 48px);
     width: 96px;
     height: 144px;
+    border: 3px dotted #cacaca
 }
 
-#deckCardsNumber {
-    position: absolute;
-    top: 220px;
-    right: 105px;
-    color: black;
-    font-weight: bold;
-    font-size: 20px;
+.hand2.hover > .card:not(.backCard) {
+    transform: scale(1.2) rotate(2deg);
+    box-shadow: black 2px -2px 10px;
+}
+
+.hand2:not(.currentHand) > .card {
+    filter: opacity(0.5);
 }
 
 #dealerHand {
-    position: absolute;
-    top: 70px;
-    left: calc(100%/2 - 48px);
-    width: 96px;
-    height: 144px;
+    top: 70px;;
 }
 
 #playerHand {
-    position: absolute;
-    bottom: 70px;
-    left: calc(100%/2 - 48px);
-    width: 96px;
-    height: 144px;
+    top: calc(100% - 144px - 70px);
 }
 
 .card {
     position: absolute;
     width: 96px;
     height: 144px;
-    background-image: url(images/cards/card-back1.png);
     transition: 0.7s;
+}
+
+.backCard {
+    background-image: url(images/cards/card-back1.png)!important;
+}
+
+#deck {
+    position: absolute;
+    top: 70px;
+    left: calc(100% - 96px - 70px);
+}
+
+#deck:after {
+    position: absolute;
+    content: attr(data-content);
+    top: 144px;
+    left: 35px;
+    color: #cacaca;
+    font-weight: bold;
+    font-size: 20px;
 }
 
 #actions {
@@ -102,26 +113,6 @@ html, body {
     background: transparent;
 }
 
-.hand.hover > .card {
-    transform: scale(1.2) rotate(2deg);
-    box-shadow: black 2px -2px 10px;
-}
-
-#endMessage {
-    position: absolute;
-    width: 100%;
-    height: 50px;
-    text-align: center;
-    font-size: 50px;
-    font-weight: bold;
-    top: calc(100%/2 - 25px);
-    line-height: 50px;
-    transition: 0.5s;
-    color: #d40000;
-    text-shadow: black 2px 2px 3px;
-    transform: scale(0);
-}
-
 #score {
     position: absolute;
     width: 100%;
@@ -133,5 +124,28 @@ html, body {
     line-height: 50px;
     transition: 0.5s;
     color: #000000;
+    transform: scale(0);
+}
+
+#money {
+    width: fit-content;
+    background: #ffffff38;
+    border-radius: 0 0 20px;
+    font-size: 20px;
+    font-weight: bold;
+    color: #1a1a1a;
+    font-family: Calibri;
+    padding: 10px;
+}
+
+.stateMessage {
+    position: absolute;
+    font-weight: bold;
+    top: 160px;
+    text-align: center;
+    font-size: 15px;
+    transition: 0.5s;
+    color: #d40000;
+    text-shadow: black 2px 2px 3px;
     transform: scale(0);
 }
