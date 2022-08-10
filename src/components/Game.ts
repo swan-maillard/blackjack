@@ -52,12 +52,15 @@ export default class Game {
         }
 
         this._deck.shuffle();
-        // this._deck.addCard(new Card(1, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
+        this._deck.addCard(new Card(10, 0))
+        this._deck.addCard(new Card(10, 0))
+        this._deck.addCard(new Card(10, 0))
+        this._deck.addCard(new Card(10, 0))
+        this._deck.addCard(new Card(10, 0))
+        this._deck.addCard(new Card(10, 0))
+        this._deck.addCard(new Card(10, 0))
+        this._deck.addCard(new Card(7, 0))
+        this._deck.addCard(new Card(10, 0))
 
         let deckHTML = document.getElementById("deck") as HTMLElement;
         deckHTML.setAttribute("data-content", this._deck.getNbCards().toString());
@@ -179,7 +182,7 @@ export default class Game {
             this._player.getBankroll() >= this._player.getBet(this._currentPlayerHand) && !Board.animationPlaying) {
 
             this._player.splitHand(this._currentPlayerHand);
-            this._player.bet(this._player.getBet(this._currentPlayerHand), this._currentPlayerHand+1);
+            this._player.bet(this._player.getBet(this._currentPlayerHand), this._player.getNumberHands()-1);
 
             let bankrollHTML = document.getElementById("bankroll") as HTMLElement;
             bankrollHTML.textContent = this._player.getBankroll().toString() + " €";
