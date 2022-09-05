@@ -52,15 +52,6 @@ export default class Game {
         }
 
         this._deck.shuffle();
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(10, 0))
-        // this._deck.addCard(new Card(7, 0))
-        // this._deck.addCard(new Card(10, 0))
 
         let deckHTML = document.getElementById("deck") as HTMLElement;
         deckHTML.setAttribute("data-content", this._deck.getNbCards().toString());
