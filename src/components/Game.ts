@@ -3,6 +3,12 @@ import Deck from "./Deck";
 import Card, { Suit } from "./Card";
 import Hand from "./Hand";
 import Board from "./Board";
+import {
+    adviseStrategy,
+    currentChartKey,
+    StrategyAction,
+    StrategyAdvice,
+} from "./Strategy";
 
 enum State {
     CREATE,
@@ -13,6 +19,25 @@ enum State {
     FINISH,
     OVER,
 }
+
+export enum Mode {
+    FREE = "free",
+    LEARNING = "learning",
+    TRAINING = "training",
+}
+
+export interface TrainingStats {
+    correct: number;
+    total: number;
+    streak: number;
+    maxStreak: number;
+}
+
+const STATS_KEY = "blackjack.trainingStats";
+const MODE_KEY = "blackjack.mode";
+const CHART_VISIBLE_KEY = "blackjack.trainingChartVisible";
+const AUTO_BET = 5;
+const AUTO_REFILL = 1000;
 
 function requireEl<T extends HTMLElement = HTMLElement>(id: string): T {
     const el = document.getElementById(id);
@@ -39,6 +64,9 @@ export default class Game {
     private _round: number;
     private _holeHidden: boolean;
     private _numberDecks: number;
+    private _mode: Mode;
+    private _trainingStats: TrainingStats;
+    private _chartVisibleInTraining: boolean;
 
     private readonly _buttons: {
         STAND: HTMLButtonElement;
@@ -56,6 +84,9 @@ export default class Game {
         this._round = 1;
         this._holeHidden = false;
         this._numberDecks = 6;
+        this._mode = this.loadMode();
+        this._trainingStats = this.loadStats();
+        this._chartVisibleInTraining = this.loadChartVisible();
 
         this._buttons = {
             STAND: requireEl<HTMLButtonElement>("standButton"),
@@ -63,6 +94,9 @@ export default class Game {
             DOUBLE: requireEl<HTMLButtonElement>("doubleButton"),
             SPLIT: requireEl<HTMLButtonElement>("splitButton"),
         };
+
+        this.refreshModeUI();
+        this.refreshStatsUI();
     }
 
     async start(bankroll = STARTING_BANKROLL, numberDecks = 6): Promise<void> {
@@ -82,14 +116,47 @@ export default class Game {
         this._buttons.HIT.classList.add("disabled");
         this._buttons.DOUBLE.classList.add("disabled");
         this._buttons.SPLIT.classList.add("disabled");
+        this.clearRecommendation();
     }
 
     private enableButtons(): void {
         this.disableAllButtons();
+        this.clearEvaluationMarks();
         this._buttons.STAND.classList.remove("disabled");
         this._buttons.HIT.classList.remove("disabled");
         if (this.canDouble()) this._buttons.DOUBLE.classList.remove("disabled");
         if (this.canSplit()) this._buttons.SPLIT.classList.remove("disabled");
+
+        // In learning mode, glow the recommended button and update the chart panel.
+        if (this._mode === Mode.LEARNING) {
+            const advice = this.currentAdvice();
+            if (advice) {
+                this.highlightRecommendation(advice.action);
+                this.refreshLearningHint(advice);
+                this.refreshChartHighlight();
+            }
+        }
+        if (this._mode === Mode.TRAINING) {
+            this.refreshTrainingHint();
+            if (this._chartVisibleInTraining) this.refreshChartHighlight();
+        }
+    }
+
+    private clearRecommendation(): void {
+        this._buttons.STAND.classList.remove("recommended");
+        this._buttons.HIT.classList.remove("recommended");
+        this._buttons.DOUBLE.classList.remove("recommended");
+        this._buttons.SPLIT.classList.remove("recommended");
+    }
+
+    private highlightRecommendation(action: StrategyAction): void {
+        const map: Record<StrategyAction, HTMLButtonElement> = {
+            HIT: this._buttons.HIT,
+            STAND: this._buttons.STAND,
+            DOUBLE: this._buttons.DOUBLE,
+            SPLIT: this._buttons.SPLIT,
+        };
+        map[action].classList.add("recommended");
     }
 
     private refreshBankroll(): void {
@@ -145,6 +212,23 @@ export default class Game {
     // ---------- Betting ----------
 
     async openBet(): Promise<void> {
+        if (this._mode !== Mode.FREE) {
+            // In Learning/Training there is no betting UI — auto-bet and deal.
+            this._state = State.BET;
+            this.disableAllButtons();
+            Board.clearChipStack();
+            requireEl("betPanel").classList.add("hidden");
+            if (this._player.getBankroll() < AUTO_BET) {
+                this._player.setBankroll(AUTO_REFILL);
+            }
+            this._player.bet(AUTO_BET, 0);
+            Board.addBetChip(AUTO_BET);
+            this.refreshBankroll();
+            this.refreshBet();
+            await this.deal();
+            return;
+        }
+
         if (this._player.getBankroll() < MIN_BET) {
             this.gameOver();
             return;
@@ -243,6 +327,7 @@ export default class Game {
 
     async hit(): Promise<void> {
         if (this._state !== State.PLAY || Board.animationPlaying) return;
+        this.evaluateMove("HIT");
         this.disableAllButtons();
 
         await this.dealOne("PLAYER", false);
@@ -260,6 +345,7 @@ export default class Game {
 
     async double(): Promise<void> {
         if (this._state !== State.PLAY || Board.animationPlaying || !this.canDouble()) return;
+        this.evaluateMove("DOUBLE");
 
         const currentBet = this._player.getBet(this._currentPlayerHand);
         this._player.bet(currentBet, this._currentPlayerHand);
@@ -282,6 +368,7 @@ export default class Game {
 
     async split(): Promise<void> {
         if (this._state !== State.PLAY || Board.animationPlaying || !this.canSplit()) return;
+        this.evaluateMove("SPLIT");
 
         const stake = this._player.getBet(this._currentPlayerHand);
         this._player.splitHand(this._currentPlayerHand);
@@ -306,6 +393,12 @@ export default class Game {
         } else {
             this.enableButtons();
         }
+    }
+
+    async stand(): Promise<void> {
+        if (this._state !== State.PLAY || Board.animationPlaying) return;
+        this.evaluateMove("STAND");
+        await this.nextHand();
     }
 
     async nextHand(): Promise<void> {
@@ -512,5 +605,317 @@ export default class Game {
         const scoreEl = requireEl("score");
         scoreEl.textContent = "";
         scoreEl.classList.remove("show");
+    }
+
+    // ---------- Mode + strategy feedback ----------
+
+    getMode(): Mode {
+        return this._mode;
+    }
+
+    setMode(mode: Mode): void {
+        if (this._mode === mode) return;
+        this._mode = mode;
+        try { localStorage.setItem(MODE_KEY, mode); } catch { /* ignore */ }
+        this.refreshModeUI();
+        this.refreshStatsUI();
+
+        // If the player is still placing chips in Free mode and switches modes,
+        // refund and re-open with the new mode (auto-deal if going non-free).
+        if (this._state === State.BET) {
+            if (this._totalBet() > 0) {
+                this._player.refundBet(0);
+                Board.clearChipStack();
+                this.refreshBankroll();
+                this.refreshBet();
+            }
+            void this.openBet();
+            return;
+        }
+
+        if (this._state === State.PLAY && !Board.animationPlaying) {
+            this.enableButtons();
+        } else {
+            this.clearRecommendation();
+            this.hideLearningHint();
+            this.hideTrainingHint();
+            this.clearChartHighlight();
+            if (this._mode === Mode.LEARNING) this.refreshChartHighlight();
+        }
+    }
+
+    toggleTrainingChart(): void {
+        this._chartVisibleInTraining = !this._chartVisibleInTraining;
+        try { localStorage.setItem(CHART_VISIBLE_KEY, String(this._chartVisibleInTraining)); }
+        catch { /* ignore */ }
+        this.refreshModeUI();
+        if (this._mode === Mode.TRAINING && this._chartVisibleInTraining) {
+            this.refreshChartHighlight();
+        } else {
+            this.clearChartHighlight();
+        }
+    }
+
+    resetTrainingStats(): void {
+        this._trainingStats = { correct: 0, total: 0, streak: 0, maxStreak: 0 };
+        this.persistStats();
+        this.refreshStatsUI();
+    }
+
+    getTrainingStats(): TrainingStats {
+        return { ...this._trainingStats };
+    }
+
+    private loadMode(): Mode {
+        try {
+            const v = localStorage.getItem(MODE_KEY);
+            if (v === Mode.LEARNING || v === Mode.TRAINING || v === Mode.FREE) return v;
+        } catch { /* ignore */ }
+        return Mode.FREE;
+    }
+
+    private loadChartVisible(): boolean {
+        try {
+            const v = localStorage.getItem(CHART_VISIBLE_KEY);
+            if (v === "true") return true;
+        } catch { /* ignore */ }
+        return false;
+    }
+
+    private loadStats(): TrainingStats {
+        try {
+            const raw = localStorage.getItem(STATS_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw) as Partial<TrainingStats>;
+                return {
+                    correct: parsed.correct ?? 0,
+                    total: parsed.total ?? 0,
+                    streak: parsed.streak ?? 0,
+                    maxStreak: parsed.maxStreak ?? 0,
+                };
+            }
+        } catch { /* ignore */ }
+        return { correct: 0, total: 0, streak: 0, maxStreak: 0 };
+    }
+
+    private persistStats(): void {
+        try { localStorage.setItem(STATS_KEY, JSON.stringify(this._trainingStats)); } catch { /* ignore */ }
+    }
+
+    private currentAdvice(): StrategyAdvice | null {
+        if (this._state !== State.PLAY) return null;
+        const upcard = this._dealerHand.getCards()[0];
+        if (!upcard) return null;
+        const cards = this._player.getHand(this._currentPlayerHand).getCards();
+        if (cards.length < 2) return null;
+        return adviseStrategy({
+            playerCards: cards,
+            dealerUpcard: upcard,
+            canDouble: this.canDouble(),
+            canSplit: this.canSplit(),
+        });
+    }
+
+    /**
+     * Called from each action handler. In TRAINING mode, scores the guess and
+     * displays a toast. In LEARNING mode, no scoring — the recommended button
+     * already glowed.
+     */
+    private evaluateMove(chosen: StrategyAction): void {
+        if (this._mode !== Mode.TRAINING) return;
+        const advice = this.currentAdvice();
+        if (!advice) return;
+
+        const isCorrect = chosen === advice.action;
+        this._trainingStats.total++;
+        if (isCorrect) {
+            this._trainingStats.correct++;
+            this._trainingStats.streak++;
+            if (this._trainingStats.streak > this._trainingStats.maxStreak) {
+                this._trainingStats.maxStreak = this._trainingStats.streak;
+            }
+        } else {
+            this._trainingStats.streak = 0;
+        }
+        this.persistStats();
+        this.refreshStatsUI();
+        this.markEvaluation(chosen, isCorrect, advice.action);
+        this.showTrainingFeedback(isCorrect, chosen, advice);
+    }
+
+    /**
+     * Mark the chosen button green (correct) or red (wrong). On a wrong choice,
+     * also mark the action the player should have taken with green. Marks stay
+     * until the next decision is enabled (cleared by enableButtons).
+     */
+    private markEvaluation(
+        chosen: StrategyAction,
+        correct: boolean,
+        ideal: StrategyAction,
+    ): void {
+        const map: Record<StrategyAction, HTMLButtonElement> = {
+            HIT: this._buttons.HIT,
+            STAND: this._buttons.STAND,
+            DOUBLE: this._buttons.DOUBLE,
+            SPLIT: this._buttons.SPLIT,
+        };
+        this.clearEvaluationMarks();
+        // Force reflow so the animation restarts on consecutive identical actions.
+        void map[chosen].offsetWidth;
+        if (correct) {
+            map[chosen].classList.add("flash-correct");
+        } else {
+            map[chosen].classList.add("flash-wrong");
+            map[ideal].classList.add("flash-correct");
+        }
+    }
+
+    private clearEvaluationMarks(): void {
+        this._buttons.HIT.classList.remove("flash-correct", "flash-wrong");
+        this._buttons.STAND.classList.remove("flash-correct", "flash-wrong");
+        this._buttons.DOUBLE.classList.remove("flash-correct", "flash-wrong");
+        this._buttons.SPLIT.classList.remove("flash-correct", "flash-wrong");
+    }
+
+    private showTrainingFeedback(
+        correct: boolean,
+        chosen: StrategyAction,
+        advice: StrategyAdvice,
+    ): void {
+        const hint = document.getElementById("trainingHint");
+        if (!hint) return;
+        hint.classList.remove("neutral", "correct", "wrong");
+        if (correct) {
+            hint.textContent = `✓ Correct — ${chosen}`;
+            hint.classList.add("show", "correct");
+        } else {
+            const idealLabel = advice.action === advice.ideal
+                ? advice.ideal
+                : `${advice.ideal} (legal here: ${advice.action})`;
+            hint.textContent = `✗ Best was ${idealLabel} — you played ${chosen}`;
+            hint.classList.add("show", "wrong");
+        }
+    }
+
+    private refreshModeUI(): void {
+        document.querySelectorAll<HTMLButtonElement>(".modeButton").forEach((btn) => {
+            btn.classList.toggle("active", btn.dataset.mode === this._mode);
+        });
+        const board = document.getElementById("boardGame");
+        if (board) {
+            board.dataset.mode = this._mode;
+        }
+        const statsPanel = document.getElementById("trainingPanel");
+        if (statsPanel) statsPanel.classList.toggle("hidden", this._mode !== Mode.TRAINING);
+
+        const chartVisible =
+            this._mode === Mode.LEARNING ||
+            (this._mode === Mode.TRAINING && this._chartVisibleInTraining);
+        const chartPanel = document.getElementById("strategyChart");
+        if (chartPanel) chartPanel.classList.toggle("hidden", !chartVisible);
+
+        const toggleBtn = document.getElementById("toggleChartButton");
+        if (toggleBtn) {
+            toggleBtn.textContent = this._chartVisibleInTraining
+                ? "Hide strategy"
+                : "Show strategy";
+            toggleBtn.classList.toggle("active", this._chartVisibleInTraining);
+        }
+
+        // Reset any inline reset-confirm UI when switching modes.
+        const confirmEl = document.getElementById("resetConfirm");
+        const resetBtn = document.getElementById("resetStatsButton");
+        if (confirmEl) confirmEl.classList.add("hidden");
+        if (resetBtn) resetBtn.classList.remove("hidden");
+
+        if (this._mode !== Mode.LEARNING) {
+            this.hideLearningHint();
+        }
+        if (!chartVisible) {
+            this.clearChartHighlight();
+        }
+        if (this._mode !== Mode.TRAINING) {
+            this.hideTrainingHint();
+        }
+    }
+
+    private refreshStatsUI(): void {
+        const correctEl = document.getElementById("statCorrect");
+        const totalEl = document.getElementById("statTotal");
+        const accuracyEl = document.getElementById("statAccuracy");
+        const streakEl = document.getElementById("statStreak");
+        const maxStreakEl = document.getElementById("statMaxStreak");
+        const s = this._trainingStats;
+        if (correctEl) correctEl.textContent = s.correct.toString();
+        if (totalEl) totalEl.textContent = s.total.toString();
+        if (accuracyEl) {
+            accuracyEl.textContent = s.total === 0
+                ? "—"
+                : `${Math.round((s.correct / s.total) * 100)}%`;
+        }
+        if (streakEl) streakEl.textContent = s.streak.toString();
+        if (maxStreakEl) maxStreakEl.textContent = s.maxStreak.toString();
+    }
+
+    private refreshLearningHint(advice: StrategyAdvice): void {
+        const hint = document.getElementById("learningHint");
+        if (!hint) return;
+        const detail = advice.note ? ` — ${advice.note}` : "";
+        const idealSuffix = advice.action === advice.ideal ? "" : ` (ideal: ${advice.ideal})`;
+        hint.textContent = `Recommended: ${advice.action}${idealSuffix}${detail}`;
+        hint.classList.add("show");
+    }
+
+    private hideLearningHint(): void {
+        const hint = document.getElementById("learningHint");
+        if (hint) hint.classList.remove("show");
+    }
+
+    private refreshTrainingHint(): void {
+        const hint = document.getElementById("trainingHint");
+        if (!hint) return;
+        hint.classList.remove("correct", "wrong");
+        hint.classList.add("neutral");
+        hint.textContent = "Your turn — pick the best move";
+        hint.classList.add("show");
+    }
+
+    private hideTrainingHint(): void {
+        const hint = document.getElementById("trainingHint");
+        if (!hint) return;
+        hint.classList.remove("show", "neutral", "correct", "wrong");
+    }
+
+    private refreshChartHighlight(): void {
+        const chart = document.getElementById("strategyChart");
+        if (!chart) return;
+        this.clearChartHighlight();
+        const upcard = this._dealerHand.getCards()[0];
+        if (!upcard) return;
+        const cards = this._player.getHand(this._currentPlayerHand).getCards();
+        if (cards.length < 2) return;
+        const key = currentChartKey(cards);
+        const dKey = upcard.isAce() ? "A" : upcard.getScore().toString();
+        const rowKey = `${key.category}:${key.key}`;
+        const cell = chart.querySelector<HTMLElement>(
+            `[data-row="${rowKey}"][data-col="${dKey}"]`,
+        );
+        if (cell) cell.classList.add("current");
+        const rowHeader = chart.querySelector<HTMLElement>(
+            `[data-row-header="${rowKey}"]`,
+        );
+        if (rowHeader) rowHeader.classList.add("current");
+        const colHeader = chart.querySelector<HTMLElement>(
+            `[data-col-header="${dKey}"]`,
+        );
+        if (colHeader) colHeader.classList.add("current");
+    }
+
+    private clearChartHighlight(): void {
+        const chart = document.getElementById("strategyChart");
+        if (!chart) return;
+        chart.querySelectorAll<HTMLElement>(".current").forEach((el) =>
+            el.classList.remove("current"),
+        );
     }
 }

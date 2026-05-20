@@ -686,3 +686,476 @@ html, body {
     font-size: 16px;
     opacity: 0.75;
 }
+
+/* ===== Mode selector ===== */
+#modeSelector {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    backdrop-filter: blur(6px);
+}
+
+.modeButton {
+    padding: 7px 16px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.6);
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.2s ease;
+}
+
+.modeButton:hover {
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.modeButton.active {
+    color: #1c1300;
+    background: linear-gradient(180deg, #fbbf24, #d97706);
+    box-shadow: 0 3px 10px rgba(217, 119, 6, 0.45);
+}
+
+/* ===== Recommended action glow (learning mode) ===== */
+.actionButton.recommended:not(.disabled) {
+    border-color: #fbbf24;
+    box-shadow:
+        0 0 0 2px rgba(251, 191, 36, 0.55),
+        0 0 22px rgba(251, 191, 36, 0.55),
+        0 6px 16px rgba(0, 0, 0, 0.35);
+    animation: recommendedPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes recommendedPulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.55), 0 0 18px rgba(251, 191, 36, 0.45), 0 6px 16px rgba(0,0,0,0.35); }
+    50%      { box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.85), 0 0 30px rgba(251, 191, 36, 0.75), 0 6px 16px rgba(0,0,0,0.35); }
+}
+
+/* ===== Hint banners (top of action area) ===== */
+.hintBanner {
+    position: absolute;
+    bottom: 96px;
+    left: 50%;
+    transform: translate(-50%, 8px);
+    padding: 8px 18px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 6;
+    transition: opacity 0.2s ease, transform 0.25s ease;
+    white-space: nowrap;
+    max-width: 80vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hintBanner.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+#learningHint {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.92), rgba(217, 119, 6, 0.92));
+    color: #1c1300;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+#trainingHint {
+    background: rgba(0, 0, 0, 0.7);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+/* Training hint pill takes on feedback colors after a move */
+#trainingHint.neutral {
+    background: rgba(0, 0, 0, 0.7);
+    color: rgba(255, 255, 255, 0.85);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+#trainingHint.correct {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+#trainingHint.wrong {
+    background: linear-gradient(135deg, #ef4444, #b91c1c);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ===== Action button evaluation marks (training feedback) =====
+   Marks persist until the next decision is enabled, so a brief intro animation
+   plays once and the colored state stays.
+*/
+.actionButton.flash-correct,
+.actionButton.flash-wrong {
+    opacity: 1 !important;
+    cursor: default;
+}
+
+.actionButton.flash-correct {
+    background: linear-gradient(180deg, #16a34a, #15803d) !important;
+    border-color: rgba(255, 255, 255, 0.45) !important;
+    box-shadow:
+        0 0 0 2px rgba(22, 163, 74, 0.65),
+        0 0 26px rgba(22, 163, 74, 0.55) !important;
+    color: #fff !important;
+    animation: flashCorrectIntro 0.5s ease-out;
+}
+
+.actionButton.flash-wrong {
+    background: linear-gradient(180deg, #ef4444, #b91c1c) !important;
+    border-color: rgba(255, 255, 255, 0.45) !important;
+    box-shadow:
+        0 0 0 2px rgba(239, 68, 68, 0.65),
+        0 0 26px rgba(239, 68, 68, 0.55) !important;
+    color: #fff !important;
+    animation: flashWrongIntro 0.5s ease-out;
+}
+
+@keyframes flashCorrectIntro {
+    0%   { transform: scale(1.08); }
+    100% { transform: scale(1.0); }
+}
+
+@keyframes flashWrongIntro {
+    0%, 100% { transform: translateX(0); }
+    20%      { transform: translateX(-5px); }
+    40%      { transform: translateX(5px); }
+    60%      { transform: translateX(-3px); }
+    80%      { transform: translateX(3px); }
+}
+
+/* ===== Training panel ===== */
+#trainingPanel {
+    position: absolute;
+    top: 96px;
+    left: 24px;
+    width: 220px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    padding: 14px 16px;
+    background: rgba(0, 0, 0, 0.42);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    backdrop-filter: blur(8px);
+    z-index: 5;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+#trainingPanel.hidden { display: none; }
+
+#trainingPanel > header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 12px;
+}
+
+.trainingActions {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.panelButton {
+    width: 100%;
+    padding: 9px 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.85);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.panelButton:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+}
+
+.panelButton.active {
+    background: linear-gradient(180deg, #fbbf24, #d97706);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #1c1300;
+}
+
+.panelButton.ghost {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.55);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.panelButton.ghost:hover {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.panelButton.danger {
+    background: linear-gradient(180deg, #ef4444, #b91c1c);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.panelButton.danger:hover {
+    filter: brightness(1.1);
+}
+
+.resetGroup {
+    position: relative;
+}
+
+#resetConfirm {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 10px;
+}
+
+#resetConfirm.hidden { display: none; }
+
+#resetConfirm > span {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: center;
+}
+
+.resetConfirmRow {
+    display: flex;
+    gap: 6px;
+}
+
+.resetConfirmRow .panelButton {
+    flex: 1;
+}
+
+.panelButton.compact {
+    padding: 7px 8px;
+    letter-spacing: 0.1em;
+}
+
+#resetStatsButton.hidden { display: none; }
+
+.trainingStats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.trainingStat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.trainingStat .value {
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+}
+
+.trainingStat .label {
+    margin-top: 2px;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* ===== Strategy chart panel ===== */
+#strategyChart {
+    position: absolute;
+    top: 96px;
+    bottom: 24px;
+    left: 24px;
+    width: 360px;
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    z-index: 6;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+}
+
+/* When training panel is also visible, shift the chart to the right of it. */
+#boardGame[data-mode="training"] #strategyChart {
+    left: 268px;
+}
+
+#strategyChart.hidden { display: none; }
+
+#strategyChart > header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.7);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#closeChartButton {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 6px;
+    transition: color 0.15s ease, background 0.15s ease;
+    border-radius: 6px;
+}
+
+#closeChartButton:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* In learning mode the chart is always open — hide the close X */
+#boardGame[data-mode="learning"] #closeChartButton {
+    display: none;
+}
+
+.chartScroll {
+    overflow: auto;
+    padding: 8px 10px;
+    flex: 1;
+}
+
+.chartTable {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 2px;
+    font-family: inherit;
+    font-size: 10px;
+}
+
+.chartTable th,
+.chartTable td {
+    text-align: center;
+    padding: 3px 0;
+    width: 24px;
+    border-radius: 4px;
+    line-height: 1.1;
+}
+
+.chartTable thead th {
+    color: rgba(255, 255, 255, 0.55);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.chartTable tbody th {
+    text-align: right;
+    padding-right: 8px;
+    color: rgba(255, 255, 255, 0.75);
+    font-weight: 700;
+    font-size: 10px;
+    background: transparent;
+    white-space: nowrap;
+}
+
+.chartTable .section-row th {
+    text-align: left;
+    padding: 10px 0 4px;
+    color: #fbbf24;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    background: transparent;
+}
+
+.chartTable td.cell {
+    font-weight: 800;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.chartTable td.cell-H,  .legend-cell.cell-H  { background: #ef4444; color: #fff; }
+.chartTable td.cell-S,  .legend-cell.cell-S  { background: #fbbf24; color: #1c1300; }
+.chartTable td.cell-D,  .legend-cell.cell-D  { background: #38bdf8; color: #0c2030; }
+.chartTable td.cell-Ds, .legend-cell.cell-Ds { background: #06b6d4; color: #062028; }
+.chartTable td.cell-P,  .legend-cell.cell-P  { background: #22c55e; color: #052810; }
+.chartTable td.cell-Ph, .legend-cell.cell-Ph { background: #84cc16; color: #15200a; }
+
+.chartTable td.current,
+.chartTable th.current {
+    outline: 2px solid #fff;
+    outline-offset: -2px;
+    box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.8);
+    color: #fff !important;
+    z-index: 2;
+}
+
+.chartTable td.cell.current {
+    filter: brightness(1.15);
+}
+
+.chartLegend {
+    padding: 8px 12px 12px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.75);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.legend-cell {
+    display: inline-block;
+    width: 22px;
+    text-align: center;
+    padding: 2px 0;
+    border-radius: 4px;
+    font-weight: 800;
+    margin-right: 4px;
+}
+
+/* Compact top bar so brand + mode + stats fit */
+#topBar {
+    gap: 18px;
+    flex-wrap: wrap;
+}

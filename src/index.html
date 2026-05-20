@@ -9,9 +9,14 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body class="preload">
-<div id="boardGame">
+<div id="boardGame" data-mode="free">
     <header id="topBar">
         <div class="brand">Blackjack</div>
+        <div id="modeSelector" role="tablist" aria-label="Game mode">
+            <button class="modeButton active" data-mode="free" type="button">Free Play</button>
+            <button class="modeButton" data-mode="learning" type="button">Learning</button>
+            <button class="modeButton" data-mode="training" type="button">Training</button>
+        </div>
         <div class="stats">
             <div class="stat">
                 <span class="label">Round</span>
@@ -83,6 +88,81 @@
         </div>
         <div class="bet-hint">Minimum bet $5</div>
     </div>
+
+    <div id="learningHint" class="hintBanner"></div>
+    <div id="trainingHint" class="hintBanner"></div>
+
+    <aside id="trainingPanel" class="hidden">
+        <header>
+            <span>Training</span>
+        </header>
+        <div class="trainingStats">
+            <div class="trainingStat">
+                <span class="value"><span id="statCorrect">0</span>/<span id="statTotal">0</span></span>
+                <span class="label">Score</span>
+            </div>
+            <div class="trainingStat">
+                <span class="value" id="statAccuracy">—</span>
+                <span class="label">Accuracy</span>
+            </div>
+            <div class="trainingStat">
+                <span class="value" id="statStreak">0</span>
+                <span class="label">Streak</span>
+            </div>
+            <div class="trainingStat">
+                <span class="value" id="statMaxStreak">0</span>
+                <span class="label">Best</span>
+            </div>
+        </div>
+        <div class="trainingActions">
+            <button id="toggleChartButton" type="button" class="panelButton">Show strategy</button>
+            <div class="resetGroup">
+                <button id="resetStatsButton" type="button" class="panelButton ghost">Reset stats</button>
+                <div id="resetConfirm" class="hidden">
+                    <span>Reset stats?</span>
+                    <div class="resetConfirmRow">
+                        <button id="resetYesButton" type="button" class="panelButton danger compact">Yes</button>
+                        <button id="resetNoButton" type="button" class="panelButton ghost compact">No</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <aside id="strategyChart" class="hidden">
+        <header>
+            <span>Basic Strategy</span>
+            <button id="closeChartButton" type="button" title="Close">×</button>
+        </header>
+        <div class="chartScroll">
+            <table class="chartTable">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th data-col-header="2">2</th>
+                        <th data-col-header="3">3</th>
+                        <th data-col-header="4">4</th>
+                        <th data-col-header="5">5</th>
+                        <th data-col-header="6">6</th>
+                        <th data-col-header="7">7</th>
+                        <th data-col-header="8">8</th>
+                        <th data-col-header="9">9</th>
+                        <th data-col-header="10">10</th>
+                        <th data-col-header="A">A</th>
+                    </tr>
+                </thead>
+                <tbody id="chartBody"></tbody>
+            </table>
+        </div>
+        <div class="chartLegend">
+            <span class="legend-cell cell-H">H</span> Hit
+            <span class="legend-cell cell-S">S</span> Stand
+            <span class="legend-cell cell-D">D</span> Double / Hit
+            <span class="legend-cell cell-Ds">Ds</span> Double / Stand
+            <span class="legend-cell cell-P">P</span> Split
+            <span class="legend-cell cell-Ph">Ph</span> Split / Hit
+        </div>
+    </aside>
 
     <div id="gameOver" class="hidden">
         <div class="gameOver-card">
