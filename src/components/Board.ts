@@ -1,199 +1,418 @@
 import Card from "./Card";
 
-type HandType = ("DEALER"|"PLAYER");
-const hands = {
-    DEALER: document.getElementById("dealerHand") as HTMLElement,
-    PLAYER: document.getElementById("playerHand") as HTMLElement,
+export type HandType = "DEALER" | "PLAYER";
+
+function requireEl<T extends HTMLElement = HTMLElement>(id: string): T {
+    const el = document.getElementById(id);
+    if (!el) throw new Error(`Missing element #${id}`);
+    return el as T;
 }
 
-function sleep(ms: number) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let _hands: Record<HandType, HTMLElement> | null = null;
+function hands(): Record<HandType, HTMLElement> {
+    if (!_hands) {
+        _hands = {
+            DEALER: requireEl("dealerHand"),
+            PLAYER: requireEl("playerHand"),
+        };
+    }
+    return _hands;
+}
+
+interface DealOptions {
+    hidden?: boolean;
 }
 
 export default class Board {
     public static animationPlaying = false;
-    public static dealingSpeed = 700;
-    public static offsetCards = 20;
+    public static dealingSpeed = 500;
+    public static flipSpeed = 600;
+    public static offsetCards = 26;
 
-    static async dealCard(card: Card | undefined, hand: HandType) {
-        if (card === undefined) return;
-
-        this.animationPlaying = true;
-
-        let deckHTML = document.getElementById("deck") as HTMLElement;
-        deckHTML.setAttribute("data-content", (parseInt(deckHTML.dataset.content) - 1).toString());
-
-
-        let handsHTML = hands[hand].children as HTMLCollectionOf<HTMLElement>;
-        let handHTML: HTMLElement;
-        if (handsHTML.length === 0) {
-            handHTML = document.createElement("div");
-            handHTML.classList.add("hand2", "currentHand");
-            handHTML.setAttribute("data-hand", "0");
-            hands[hand].append(handHTML);
+    private static getCurrentHand(side: HandType): HTMLElement {
+        const sideEl = hands()[side];
+        const children = sideEl.children as HTMLCollectionOf<HTMLElement>;
+        if (children.length === 0) {
+            const handEl = document.createElement("div");
+            handEl.classList.add("hand2", "currentHand");
+            handEl.dataset.hand = "0";
+            sideEl.append(handEl);
+            return handEl;
         }
-        else {
-            for (let i = 0; i < handsHTML.length; i++) {
-                if (handsHTML[i].classList.contains("currentHand")) {
-                    handHTML = handsHTML[i];
-                }
+        for (let i = 0; i < children.length; i++) {
+            if (children[i].classList.contains("currentHand")) {
+                return children[i];
             }
         }
+        return children[0];
+    }
 
-        let deck = document.getElementById("deck");
-
-        let newCard = document.createElement("div");
-        newCard.classList.add("card", "backCard");
-        newCard.style.backgroundImage = 'url(' + card.getUrl() + ')';
-        newCard.style.top = (deck.getBoundingClientRect().top - handHTML.getBoundingClientRect().top).toString() + "px";
-        newCard.style.left = (deck.getBoundingClientRect().left - handHTML.getBoundingClientRect().left).toString() + "px";
-        handHTML.appendChild(newCard);
-
-        await sleep(100);
-
-        let offsetTop = -this.offsetCards;
-        let offsetLeft = this.offsetCards;
-        if (hand === "DEALER") offsetTop *= -1;
-        if (handHTML.children.length > 1) {
-            let lastCard = handHTML.lastChild.previousSibling as HTMLElement;
-            newCard.style.top = (lastCard.getBoundingClientRect().top - handHTML.getBoundingClientRect().top + offsetTop).toString() + "px";
-            newCard.style.left = (lastCard.getBoundingClientRect().left - handHTML.getBoundingClientRect().left + offsetLeft).toString() + "px";
+    private static countCards(handEl: HTMLElement): number {
+        let count = 0;
+        for (const child of Array.from(handEl.children)) {
+            if (child.classList.contains("card")) count++;
         }
-        else {
-            newCard.style.top = "0px";
-            newCard.style.left = "0px";
-        }
+        return count;
+    }
 
+    private static buildCardEl(card: Card): HTMLElement {
+        const wrapper = document.createElement("div");
+        wrapper.classList.add("card");
+
+        const inner = document.createElement("div");
+        inner.classList.add("card-inner");
+
+        const back = document.createElement("div");
+        back.classList.add("card-face", "card-back");
+
+        const front = document.createElement("div");
+        front.classList.add("card-face", "card-front");
+        front.style.backgroundImage = `url('${card.getUrl()}')`;
+
+        inner.append(back, front);
+        wrapper.append(inner);
+        return wrapper;
+    }
+
+    static async dealCard(card: Card | undefined, side: HandType, options: DealOptions = {}): Promise<void> {
+        if (!card) return;
+        this.animationPlaying = true;
+
+        const handEl = this.getCurrentHand(side);
+        const deckEl = requireEl("deck");
+        const cardEl = this.buildCardEl(card);
+        if (options.hidden) cardEl.classList.add("hidden-card");
+
+        const deckRect = deckEl.getBoundingClientRect();
+        const handRect = handEl.getBoundingClientRect();
+        cardEl.style.top = `${deckRect.top - handRect.top}px`;
+        cardEl.style.left = `${deckRect.left - handRect.left}px`;
+        handEl.appendChild(cardEl);
+
+        // Force layout so the starting position is honored before transition
+        void cardEl.offsetWidth;
+
+        const cards = Array.from(handEl.children).filter((c) =>
+            c.classList.contains("card"),
+        ) as HTMLElement[];
+        const myIndex = cards.length - 1;
+        const offsetTop = (side === "DEALER" ? 1 : -1) * this.offsetCards;
+        const offsetLeft = this.offsetCards;
+
+        // Anchor subsequent cards off card[0] so split-positioned stacks line up
+        const baseTop = myIndex > 0 ? parseInt(cards[0].style.top, 10) || 0 : 0;
+        const baseLeft = myIndex > 0 ? parseInt(cards[0].style.left, 10) || 0 : 0;
+
+        cardEl.style.top = `${baseTop + myIndex * offsetTop}px`;
+        cardEl.style.left = `${baseLeft + myIndex * offsetLeft}px`;
+
+        // Realign any intermediate cards in case the hand layout was reshaped (split)
+        for (let i = 1; i < myIndex; i++) {
+            cards[i].style.top = `${baseTop + i * offsetTop}px`;
+            cards[i].style.left = `${baseLeft + i * offsetLeft}px`;
+        }
 
         await sleep(this.dealingSpeed);
 
-        newCard.classList.remove("backCard");
-
-        setTimeout(() => {
-            let cards = handHTML.children as HTMLCollectionOf<HTMLElement>;
-            for (let i = 1; i < cards.length; i++) {
-                if (!cards[i].classList.contains("stateMessage")) {
-                    cards[i].style.top = (parseInt(cards[0].style.top) + i * offsetTop).toString() + "px";
-                    cards[i].style.left = (parseInt(cards[0].style.left) + i * offsetLeft).toString() + "px";
-                }
-            }
-        }, 100);
-
+        if (!options.hidden) {
+            cardEl.classList.add("flipped");
+            await sleep(this.flipSpeed);
+        }
 
         this.animationPlaying = false;
     }
 
-    static async clearHands() {
+    static async revealHoleCard(): Promise<void> {
+        const handEl = this.getCurrentHand("DEALER");
+        const hidden = handEl.querySelector<HTMLElement>(".hidden-card");
+        if (!hidden) return;
         this.animationPlaying = true;
-
-        let cards = document.getElementsByClassName('card') as HTMLCollectionOf<HTMLElement>;
-        for (let i = 0; i < cards.length; i++) {
-            let card = cards[i];
-            let parent = card.parentElement as HTMLElement;
-
-            if (parent.classList.contains("hand2")) {
-                card.classList.add("backCard");
-                card.style.top = (-parent.getBoundingClientRect().top - card.clientHeight).toString() + "px";
-                card.style.left = "0px";
-            }
-        }
-
-        let stateMessages = document.getElementsByClassName('stateMessage') as HTMLCollectionOf<HTMLElement>;
-        for (let i = 0; i < stateMessages.length; i++) {
-            stateMessages[i].style.transform = "scale(0)";
-        }
-
-        await sleep(this.dealingSpeed);
-        hands.DEALER.innerHTML = "";
-        hands.PLAYER.innerHTML = "";
-
+        hidden.classList.remove("hidden-card");
+        hidden.classList.add("flipped");
+        await sleep(this.flipSpeed);
         this.animationPlaying = false;
     }
 
-    static async splitCards() {
+    static async clearHands(): Promise<void> {
         this.animationPlaying = true;
+        const cardEls = document.querySelectorAll<HTMLElement>(".hand .card");
+        cardEls.forEach((card) => {
+            const parent = card.parentElement;
+            if (!parent) return;
+            const parentRect = parent.getBoundingClientRect();
+            card.classList.remove("flipped");
+            card.style.opacity = "0";
+            card.style.top = `${-parentRect.top - card.clientHeight}px`;
+            card.style.left = "0px";
+        });
 
-        let handsHTML = hands.PLAYER.children as HTMLCollectionOf<HTMLElement>;
-        let handHTML: HTMLElement;
-        for (let i = 0; i < handsHTML.length; i++) {
-            if (handsHTML[i].classList.contains("currentHand")) {
-                handHTML = handsHTML[i];
-            }
-        }
+        const stateMessages = document.querySelectorAll<HTMLElement>(".stateMessage");
+        stateMessages.forEach((el) => el.classList.remove("show"));
 
-        let card = handHTML.lastChild as HTMLElement;
-        card.remove();
-        let newHand = document.createElement("div");
+        await sleep(this.dealingSpeed);
+        hands().DEALER.innerHTML = "";
+        hands().PLAYER.innerHTML = "";
+        this.animationPlaying = false;
+    }
+
+    static async splitCards(): Promise<void> {
+        this.animationPlaying = true;
+        const playerSide = hands().PLAYER;
+        const handEl = this.getCurrentHand("PLAYER");
+
+        // Move the last card into a new hand2 div
+        const cards = Array.from(handEl.children).filter((c) =>
+            c.classList.contains("card"),
+        ) as HTMLElement[];
+        const lastCard = cards[cards.length - 1];
+        lastCard.remove();
+
+        const handsHTML = playerSide.children as HTMLCollectionOf<HTMLElement>;
+        const newHand = document.createElement("div");
         newHand.classList.add("hand2");
-        newHand.setAttribute("data-hand", handsHTML.length.toString());
-        newHand.append(card);
-        hands.PLAYER.append(newHand);
+        newHand.dataset.hand = handsHTML.length.toString();
+        newHand.append(lastCard);
+        playerSide.append(newHand);
 
-        await sleep(100);
+        await sleep(30);
 
-        let nbHands = handsHTML.length;
-
+        const nbHands = handsHTML.length;
         for (let i = 0; i < nbHands; i++) {
-            let cards = handsHTML[i].children;
-
-            for (let j = 0; j < cards.length; j++) {
-                let card = cards[j] as HTMLElement;
-                let coeff = 2*Math.sign((nbHands - 1)/2 - i)*Math.round(Math.abs((nbHands - 1)/2 - i));
+            const handCards = Array.from(handsHTML[i].children).filter((c) =>
+                c.classList.contains("card"),
+            ) as HTMLElement[];
+            for (let j = 0; j < handCards.length; j++) {
+                const c = handCards[j];
+                let coeff =
+                    2 *
+                    Math.sign((nbHands - 1) / 2 - i) *
+                    Math.round(Math.abs((nbHands - 1) / 2 - i));
                 if (nbHands % 2 === 0) coeff -= Math.sign(coeff);
-                card.style.top = (-50 - j*this.offsetCards).toString() + "px";
-                card.style.left = (coeff*(card.clientWidth) + j*this.offsetCards).toString() + "px";
+                c.style.top = `${-50 - j * this.offsetCards}px`;
+                c.style.left = `${coeff * c.clientWidth + j * this.offsetCards}px`;
             }
-
         }
         await sleep(this.dealingSpeed);
-
         this.animationPlaying = false;
     }
 
-    static switchHand(hand: number) {
-        let handsHTML = hands.PLAYER.children as HTMLCollectionOf<HTMLElement>;
+    static switchHand(hand: number): void {
+        const handsHTML = hands().PLAYER.children as HTMLCollectionOf<HTMLElement>;
         for (let i = 0; i < handsHTML.length; i++) {
-            if (parseInt(handsHTML[i].dataset.hand) === hand) {
-                handsHTML[i].classList.add("currentHand");
-            }
-            else {
-                handsHTML[i].classList.remove("currentHand");
-            }
+            const idx = parseInt(handsHTML[i].dataset.hand ?? "-1", 10);
+            handsHTML[i].classList.toggle("currentHand", idx === hand);
         }
     }
 
-    static async showStateMessage(message: string, hand: number) {
-        let handsHTML = hands.PLAYER.children as HTMLCollectionOf<HTMLElement>;
+    static async showStateMessage(message: string, hand: number, side: HandType = "PLAYER"): Promise<void> {
+        const sideEl = hands()[side];
+        const handsHTML = sideEl.children as HTMLCollectionOf<HTMLElement>;
         for (let i = 0; i < handsHTML.length; i++) {
-            if (parseInt(handsHTML[i].dataset.hand) === hand) {
-                handsHTML[i].classList.add("currentHand");
+            const idx = parseInt(handsHTML[i].dataset.hand ?? "0", 10);
+            if (idx !== hand) continue;
 
-                if (handsHTML[i].querySelector(".stateMessage") === null) {
-                    let stateMessage = document.createElement("div");
-                    stateMessage.classList.add("stateMessage");
-                    stateMessage.textContent = message;
-
-                    let firstCard = handsHTML[i].firstChild as HTMLElement;
-                    stateMessage.style.width = (firstCard.clientWidth).toString() + "px";
-                    stateMessage.style.left = parseInt(firstCard.style.left).toString() + "px";
-
-                    handsHTML[i].append(stateMessage);
-                    await sleep(100);
-                    stateMessage.style.transform = "scale(1)";
-                }
-                else {
-                    handsHTML[i].querySelector(".stateMessage").textContent = message;
-                }
-
+            let stateMessage = handsHTML[i].querySelector<HTMLElement>(".stateMessage");
+            const isNew = !stateMessage;
+            if (!stateMessage) {
+                stateMessage = document.createElement("div");
+                stateMessage.classList.add("stateMessage");
+                handsHTML[i].appendChild(stateMessage);
             }
+            stateMessage.dataset.kind = message.toLowerCase();
+            stateMessage.textContent = message;
+
+            // Anchor the badge over the actual cards of THIS hand, so split hands
+            // each show their own badge instead of stacking at the same spot.
+            const cardsOfHand = Array.from(handsHTML[i].children).filter((c) =>
+                c.classList.contains("card"),
+            ) as HTMLElement[];
+            if (cardsOfHand.length > 0) {
+                const tops = cardsOfHand.map((c) => parseInt(c.style.top, 10) || 0);
+                const lefts = cardsOfHand.map((c) => parseInt(c.style.left, 10) || 0);
+                const topmost = Math.min(...tops);
+                const avgLeft = lefts.reduce((a, b) => a + b, 0) / lefts.length;
+                const cardWidth = cardsOfHand[0].clientWidth || 120;
+                stateMessage.style.left = `${avgLeft + cardWidth / 2}px`;
+                stateMessage.style.top = `${topmost - 8}px`;
+            }
+
+            if (isNew) await sleep(30);
+            stateMessage.classList.add("show");
         }
     }
 
-    static endPlayerTurn() {
-        let handsHTML = hands.PLAYER.children as HTMLCollectionOf<HTMLElement>;
+    static endPlayerTurn(): void {
+        const handsHTML = hands().PLAYER.children as HTMLCollectionOf<HTMLElement>;
         for (let i = 0; i < handsHTML.length; i++) {
             handsHTML[i].classList.add("currentHand");
         }
     }
 
+    // ---------- Chip stack ----------
+    //
+    // Chips render as ONE column (no per-denomination piles). Each chip is absolutely
+    // positioned by its --chip-index inside a container. The container is either
+    // #chipStack (during bet phase or single-hand play) or a per-hand .hand-chips
+    // div nested in each .hand2 (after split). `Location` is "bet" or a hand index.
+
+    private static readonly CHIP_DENOMINATIONS: readonly number[] = [500, 100, 25, 5];
+
+    private static decompose(amount: number): number[] {
+        const out: number[] = [];
+        let remaining = Math.max(0, Math.round(amount));
+        for (const d of this.CHIP_DENOMINATIONS) {
+            while (remaining >= d) {
+                out.push(d);
+                remaining -= d;
+            }
+        }
+        return out;
+    }
+
+    private static makeChipEl(denom: number, index: number): HTMLElement {
+        const chip = document.createElement("div");
+        chip.classList.add("stack-chip", `chip-${denom}`);
+        chip.style.setProperty("--chip-index", index.toString());
+        const label = document.createElement("span");
+        label.textContent = denom.toString();
+        chip.appendChild(label);
+        return chip;
+    }
+
+    private static findHand2(handIdx: number): HTMLElement | null {
+        const children = hands().PLAYER.children as HTMLCollectionOf<HTMLElement>;
+        for (let i = 0; i < children.length; i++) {
+            if (parseInt(children[i].dataset.hand ?? "-1", 10) === handIdx) return children[i];
+        }
+        return null;
+    }
+
+    private static getOrCreateHandPile(handEl: HTMLElement): HTMLElement {
+        let pile = handEl.querySelector<HTMLElement>(":scope > .hand-chips");
+        if (pile) return pile;
+        pile = document.createElement("div");
+        pile.classList.add("hand-chips");
+        // Center the pile horizontally on the hand's cards.
+        const cards = Array.from(handEl.children).filter((c) =>
+            c.classList.contains("card"),
+        ) as HTMLElement[];
+        let centerLeft = 60; // .hand2 is 120 wide
+        if (cards.length > 0) {
+            const lefts = cards.map((c) => parseInt(c.style.left, 10) || 0);
+            const avg = lefts.reduce((a, b) => a + b, 0) / lefts.length;
+            centerLeft = avg + (cards[0].clientWidth || 120) / 2;
+        }
+        pile.style.left = `${centerLeft}px`;
+        handEl.appendChild(pile);
+        return pile;
+    }
+
+    /**
+     * Inside a container (#chipStack or a .hand-chips), find or create the
+     * sub-pile for a given denomination. Sub-piles are kept ordered largest-first.
+     */
+    private static getOrCreateDenomPile(container: HTMLElement, denom: number): HTMLElement {
+        let pile = container.querySelector<HTMLElement>(
+            `:scope > .chip-pile[data-denom="${denom}"]`,
+        );
+        if (pile) return pile;
+        pile = document.createElement("div");
+        pile.classList.add("chip-pile");
+        pile.dataset.denom = denom.toString();
+        const siblings = Array.from(
+            container.querySelectorAll<HTMLElement>(":scope > .chip-pile"),
+        );
+        let anchor: HTMLElement | null = null;
+        for (const s of siblings) {
+            const sDenom = parseInt(s.dataset.denom ?? "0", 10);
+            if (denom > sDenom) {
+                anchor = s;
+                break;
+            }
+        }
+        container.insertBefore(pile, anchor);
+        return pile;
+    }
+
+    private static getContainer(location: "bet" | number): HTMLElement | null {
+        if (location === "bet") return requireEl("chipStack");
+        const handEl = this.findHand2(location);
+        return handEl ? this.getOrCreateHandPile(handEl) : null;
+    }
+
+    private static chipCountIn(pile: HTMLElement): number {
+        return pile.querySelectorAll(":scope > .stack-chip").length;
+    }
+
+    static addBetChip(denom: number): void {
+        if (denom <= 0) return;
+        const container = this.getContainer("bet");
+        if (!container) return;
+        const pile = this.getOrCreateDenomPile(container, denom);
+        pile.appendChild(this.makeChipEl(denom, this.chipCountIn(pile)));
+    }
+
+    static clearChipStack(): void {
+        requireEl("chipStack").innerHTML = "";
+        document.querySelectorAll<HTMLElement>(".hand-chips").forEach((p) => p.remove());
+    }
+
+    /**
+     * Move the current bet chips out of the right-side stack into per-hand piles
+     * under each split hand. Called from Game.split.
+     */
+    static distributeChipsToHands(handBets: ReadonlyArray<number>): void {
+        requireEl("chipStack").innerHTML = "";
+        document.querySelectorAll<HTMLElement>(".hand-chips").forEach((p) => p.remove());
+        for (let i = 0; i < handBets.length; i++) {
+            const handEl = this.findHand2(i);
+            if (!handEl) continue;
+            const container = this.getOrCreateHandPile(handEl);
+            for (const d of this.decompose(handBets[i])) {
+                const pile = this.getOrCreateDenomPile(container, d);
+                pile.appendChild(this.makeChipEl(d, this.chipCountIn(pile)));
+            }
+        }
+    }
+
+    static async receiveChipsFromDealer(location: "bet" | number, amount: number): Promise<void> {
+        const container = this.getContainer(location);
+        if (!container) return;
+        const denoms = this.decompose(amount);
+        if (denoms.length === 0) return;
+        const newChips: HTMLElement[] = denoms.map((d) => {
+            const pile = this.getOrCreateDenomPile(container, d);
+            const chip = this.makeChipEl(d, this.chipCountIn(pile));
+            chip.classList.add("flying-in");
+            pile.appendChild(chip);
+            return chip;
+        });
+        void newChips[0].offsetWidth;
+        newChips.forEach((c, i) => setTimeout(() => c.classList.remove("flying-in"), i * 70));
+        await sleep(650 + newChips.length * 70);
+    }
+
+    static async sendChipsToDealer(location: "bet" | number): Promise<void> {
+        const container = this.getContainer(location);
+        if (!container) return;
+        const chips = Array.from(container.querySelectorAll<HTMLElement>(".stack-chip")).reverse();
+        if (chips.length === 0) return;
+        chips.forEach((c, i) => setTimeout(() => c.classList.add("flying-up"), i * 50));
+        await sleep(650 + chips.length * 50);
+        chips.forEach((c) => c.remove());
+    }
+
+    static async fadeChipsAway(location: "bet" | number): Promise<void> {
+        const container = this.getContainer(location);
+        if (!container) return;
+        const chips = Array.from(container.querySelectorAll<HTMLElement>(".stack-chip"));
+        if (chips.length === 0) return;
+        chips.forEach((c, i) => setTimeout(() => c.classList.add("fading-out"), i * 30));
+        await sleep(500 + chips.length * 30);
+        chips.forEach((c) => c.remove());
+    }
 }

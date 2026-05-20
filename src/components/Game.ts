@@ -1,6 +1,6 @@
 import Player from "./Player";
 import Deck from "./Deck";
-import Card from "./Card";
+import Card, { Suit } from "./Card";
 import Hand from "./Hand";
 import Board from "./Board";
 
@@ -9,21 +9,26 @@ enum State {
     BET,
     DEAL,
     PLAY,
-    FINISH
+    DEALER,
+    FINISH,
+    OVER,
 }
 
-const buttons = {
-    STAND: document.getElementById("standButton") as HTMLElement,
-    HIT: document.getElementById("hitButton") as HTMLElement,
-    DOUBLE: document.getElementById("doubleButton") as HTMLElement,
-    SPLIT: document.getElementById("splitButton") as HTMLElement,
-    disableAll: () => {
-        buttons.STAND.classList.add("disabled");
-        buttons.HIT.classList.add("disabled");
-        buttons.DOUBLE.classList.add("disabled");
-        buttons.SPLIT.classList.add("disabled");
-    }
+function requireEl<T extends HTMLElement = HTMLElement>(id: string): T {
+    const el = document.getElementById(id);
+    if (!el) throw new Error(`Missing element #${id}`);
+    return el as T;
 }
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const STARTING_BANKROLL = 1000;
+const MIN_BET = 5;
+const RESHUFFLE_THRESHOLD = 15;
+
+type Outcome = "WIN" | "LOSE" | "PUSH" | "BUST" | "BLACKJACK";
 
 export default class Game {
     private _player: Player;
@@ -31,6 +36,16 @@ export default class Game {
     private _currentPlayerHand: number;
     private _state: State;
     private _deck: Deck;
+    private _round: number;
+    private _holeHidden: boolean;
+    private _numberDecks: number;
+
+    private readonly _buttons: {
+        STAND: HTMLButtonElement;
+        HIT: HTMLButtonElement;
+        DOUBLE: HTMLButtonElement;
+        SPLIT: HTMLButtonElement;
+    };
 
     constructor() {
         this._player = new Player();
@@ -38,293 +53,464 @@ export default class Game {
         this._currentPlayerHand = 0;
         this._state = State.CREATE;
         this._deck = new Deck();
+        this._round = 1;
+        this._holeHidden = false;
+        this._numberDecks = 6;
+
+        this._buttons = {
+            STAND: requireEl<HTMLButtonElement>("standButton"),
+            HIT: requireEl<HTMLButtonElement>("hitButton"),
+            DOUBLE: requireEl<HTMLButtonElement>("doubleButton"),
+            SPLIT: requireEl<HTMLButtonElement>("splitButton"),
+        };
     }
 
-    async start(bankroll: number, numberDecks: number) {
+    async start(bankroll = STARTING_BANKROLL, numberDecks = 6): Promise<void> {
+        this._numberDecks = Math.min(Math.max(1, numberDecks), 8);
         this._player.setBankroll(bankroll);
-        numberDecks = Math.min(Math.max(1, numberDecks), 8);
-        for (let deck = 0; deck < numberDecks; deck++) {
-            for (let suit = 0; suit < 4; suit++) {
-                for (let value = 1; value <= 13; value++) {
-                    this._deck.addCard(new Card(value, suit));
+        this.refreshBankroll();
+        this.refreshBet();
+        this.refreshRound();
+        this.initDeck();
+        await this.openBet();
+    }
+
+    // ---------- UI refresh helpers ----------
+
+    private disableAllButtons(): void {
+        this._buttons.STAND.classList.add("disabled");
+        this._buttons.HIT.classList.add("disabled");
+        this._buttons.DOUBLE.classList.add("disabled");
+        this._buttons.SPLIT.classList.add("disabled");
+    }
+
+    private enableButtons(): void {
+        this.disableAllButtons();
+        this._buttons.STAND.classList.remove("disabled");
+        this._buttons.HIT.classList.remove("disabled");
+        if (this.canDouble()) this._buttons.DOUBLE.classList.remove("disabled");
+        if (this.canSplit()) this._buttons.SPLIT.classList.remove("disabled");
+    }
+
+    private refreshBankroll(): void {
+        requireEl("bankroll").textContent = this.formatMoney(this._player.getBankroll());
+    }
+
+    private refreshBet(): void {
+        const bet = this._totalBet();
+        requireEl("bet").textContent = this.formatMoney(bet);
+    }
+
+    private refreshRound(): void {
+        requireEl("round").textContent = this._round.toString();
+    }
+
+    private refreshDeckCount(): void {
+        const deckEl = requireEl("deck");
+        deckEl.dataset.count = this._deck.getNbCards().toString();
+    }
+
+    private refreshDealButton(): void {
+        const dealButton = requireEl<HTMLButtonElement>("dealButton");
+        dealButton.disabled = this._player.getBet(0) < MIN_BET;
+    }
+
+    private formatMoney(amount: number): string {
+        return "$" + amount.toLocaleString("en-US");
+    }
+
+    private _totalBet(): number {
+        let total = 0;
+        for (let i = 0; i < this._player.getNumberHands(); i++) {
+            total += this._player.getBet(i);
+        }
+        return total;
+    }
+
+    // ---------- Deck setup ----------
+
+    private initDeck(): void {
+        this._deck = new Deck();
+        for (let d = 0; d < this._numberDecks; d++) {
+            for (let s = 0; s < 4; s++) {
+                for (let v = 1; v <= 13; v++) {
+                    this._deck.addCard(new Card(v, s as Suit));
                 }
             }
         }
-
         this._deck.shuffle();
-
-        let deckHTML = document.getElementById("deck") as HTMLElement;
-        deckHTML.setAttribute("data-content", this._deck.getNbCards().toString());
-
-
-        let bankrollHTML = document.getElementById("bankroll") as HTMLElement;
-        bankrollHTML.textContent = this._player.getBankroll().toString() + " €";
-
-        await this.bet();
+        this.refreshDeckCount();
     }
 
-    async bet() {
+    // ---------- Betting ----------
+
+    async openBet(): Promise<void> {
+        if (this._player.getBankroll() < MIN_BET) {
+            this.gameOver();
+            return;
+        }
         this._state = State.BET;
-        this._player.bet(10, this._currentPlayerHand);
+        this.disableAllButtons();
+        Board.clearChipStack();
+        this.refreshBankroll();
+        this.refreshBet();
+        requireEl("betPanel").classList.remove("hidden");
+        this.refreshDealButton();
+    }
 
-        let bankrollHTML = document.getElementById("bankroll") as HTMLElement;
-        bankrollHTML.textContent = this._player.getBankroll().toString() + " €";
-        let betHTML = document.getElementById("bet") as HTMLElement;
-        betHTML.textContent = this._player.getBet(this._currentPlayerHand).toString() + " €";
+    /**
+     * Place a chip on the bet immediately. The bankroll drops live as the player
+     * builds the bet, so there is no separate "pending" amount to display.
+     */
+    addToPendingBet(chip: number): void {
+        if (this._state !== State.BET || chip <= 0) return;
+        if (this._player.getBankroll() < chip) return;
+        const accepted = this._player.bet(chip, 0);
+        if (accepted <= 0) return;
+        Board.addBetChip(chip);
+        this.refreshBankroll();
+        this.refreshBet();
+        this.refreshDealButton();
+    }
 
+    /** Refund every chip currently placed back into the bankroll. */
+    clearPendingBet(): void {
+        if (this._state !== State.BET) return;
+        this._player.refundBet(0);
+        Board.clearChipStack();
+        this.refreshBankroll();
+        this.refreshBet();
+        this.refreshDealButton();
+    }
+
+    async confirmBet(): Promise<void> {
+        if (this._state !== State.BET || this._player.getBet(0) < MIN_BET) return;
+        requireEl("betPanel").classList.add("hidden");
         await this.deal();
     }
 
-    async deal() {
+    // ---------- Round flow ----------
+
+    async deal(): Promise<void> {
         this._state = State.DEAL;
+        this.disableAllButtons();
 
-        buttons.disableAll();
-
-        let card: Card | undefined;
-        card = this._deck.popCard();
-        await Board.dealCard(card, "PLAYER");
-        this._player.addCard(card, this._currentPlayerHand);
-
-        card = this._deck.popCard();
-        await Board.dealCard(card, "DEALER");
-        this._dealerHand.addCard(card);
-
-        card = this._deck.popCard();
-        await Board.dealCard(card, "PLAYER");
-        this._player.addCard(card, this._currentPlayerHand);
+        // Standard order: player, dealer up, player, dealer hole (face down)
+        await this.dealOne("PLAYER", false);
+        await this.dealOne("DEALER", false);
+        await this.dealOne("PLAYER", false);
+        await this.dealOne("DEALER", true);
+        this._holeHidden = true;
 
         this._state = State.PLAY;
 
-        if (this.isHandLost()) await this.nextHand();
-        else this.enableButtons();
-    }
-
-    isHandLost(): boolean {
-        if (this.playerBlackjack(this._currentPlayerHand)) {
-            Board.showStateMessage("BLACKJACK", this._currentPlayerHand);
-            return true;
-        }
-        else if (this.playerBusts(this._currentPlayerHand)) {
-            Board.showStateMessage("BRÛLÉ", this._currentPlayerHand);
-            return true;
-        }
-        else {
-            return false;
+        if (this._player.getHand(0).isBlackjack()) {
+            await Board.showStateMessage("BLACKJACK", 0);
+            await this.dealerTurn();
+        } else {
+            this.enableButtons();
         }
     }
 
-    enableButtons(): void {
-        buttons.disableAll();
-
-        buttons.STAND.classList.remove("disabled");
-        buttons.HIT.classList.remove("disabled");
-        if (this.canDouble()) buttons.DOUBLE.classList.remove("disabled");
-        if (this.canSplit()) buttons.SPLIT.classList.remove("disabled");
+    private async dealOne(side: "PLAYER" | "DEALER", hidden: boolean): Promise<void> {
+        const card = this._deck.popCard();
+        this.refreshDeckCount();
+        await Board.dealCard(card, side, { hidden });
+        if (side === "PLAYER") {
+            this._player.addCard(card, this._currentPlayerHand);
+        } else {
+            this._dealerHand.addCard(card);
+        }
     }
 
     canSplit(): boolean {
-        let cards = this._player.getHand(this._currentPlayerHand).getCards();
-        return (cards.length === 2 && cards[0].getScore() === cards[1].getScore() && this._player.getNumberHands() < 3
-            && this._player.getBankroll() >= this._player.getBet(this._currentPlayerHand));
+        const cards = this._player.getHand(this._currentPlayerHand).getCards();
+        return (
+            cards.length === 2 &&
+            cards[0].getScore() === cards[1].getScore() &&
+            this._player.getNumberHands() < 3 &&
+            this._player.getBankroll() >= this._player.getBet(this._currentPlayerHand)
+        );
     }
 
     canDouble(): boolean {
-        return (this._player.getBankroll() >= this._player.getBet(this._currentPlayerHand));
+        const hand = this._player.getHand(this._currentPlayerHand);
+        return (
+            hand.size() === 2 &&
+            this._player.getBankroll() >= this._player.getBet(this._currentPlayerHand)
+        );
     }
 
-    async hit() {
-        if (this._state === State.PLAY && !Board.animationPlaying) {
-            this.enableButtons()
-            buttons.DOUBLE.classList.add("disabled");
+    async hit(): Promise<void> {
+        if (this._state !== State.PLAY || Board.animationPlaying) return;
+        this.disableAllButtons();
 
-            let card = this._deck.popCard()
-            await Board.dealCard(card, "PLAYER");
-            this._player.addCard(card, this._currentPlayerHand);
+        await this.dealOne("PLAYER", false);
+        const hand = this._player.getHand(this._currentPlayerHand);
 
-            if (this.canSplit()) buttons.SPLIT.classList.remove("disabled");
-            if (this.isHandLost()) await this.nextHand();
-        }
-    }
-
-    async double() {
-        if (this._state === State.PLAY && !Board.animationPlaying && this._player.getBankroll() >= this._player.getBet(this._currentPlayerHand)) {
-            this._player.bet(this._player.getBet(this._currentPlayerHand), this._currentPlayerHand);
-
-            buttons.disableAll();
-
-            let bankrollHTML = document.getElementById("bankroll") as HTMLElement;
-            bankrollHTML.textContent = this._player.getBankroll().toString() + " €";
-            let betHTML = document.getElementById("bet") as HTMLElement;
-            betHTML.textContent = this._player.getBet(this._currentPlayerHand).toString() + " €";
-
-            let card = this._deck.popCard()
-            await Board.dealCard(card, "PLAYER");
-            this._player.addCard(card, this._currentPlayerHand);
-
-            this.isHandLost();
+        if (hand.isBust()) {
+            await Board.showStateMessage("BUST", this._currentPlayerHand);
             await this.nextHand();
-
-        }
-    }
-
-    async split() {
-        let cards = this._player.getHand(this._currentPlayerHand).getCards();
-        if (this._state === State.PLAY && cards.length === 2 && cards[0].getScore() === cards[1].getScore() && this._player.getNumberHands() < 3 &&
-            this._player.getBankroll() >= this._player.getBet(this._currentPlayerHand) && !Board.animationPlaying) {
-
-            this._player.splitHand(this._currentPlayerHand);
-            this._player.bet(this._player.getBet(this._currentPlayerHand), this._player.getNumberHands()-1);
-
-            let bankrollHTML = document.getElementById("bankroll") as HTMLElement;
-            bankrollHTML.textContent = this._player.getBankroll().toString() + " €";
-            let betHTML = document.getElementById("bet") as HTMLElement;
-            betHTML.textContent = this._player.getBet(this._currentPlayerHand).toString() + " €";
-
+        } else if (hand.getScore().includes(21)) {
+            await this.nextHand();
+        } else {
             this.enableButtons();
-            await Board.splitCards();
         }
     }
 
-    async nextHand() {
+    async double(): Promise<void> {
+        if (this._state !== State.PLAY || Board.animationPlaying || !this.canDouble()) return;
+
+        const currentBet = this._player.getBet(this._currentPlayerHand);
+        this._player.bet(currentBet, this._currentPlayerHand);
+        this.disableAllButtons();
+        this.refreshBankroll();
+        this.refreshBet();
+
+        // Drop the extra stake onto the correct pile (right panel for 1 hand, hand pile after split).
+        const splitOccurred = this._player.getNumberHands() > 1;
+        const location: "bet" | number = splitOccurred ? this._currentPlayerHand : "bet";
+        await Board.receiveChipsFromDealer(location, currentBet);
+
+        await this.dealOne("PLAYER", false);
+
+        if (this._player.getHand(this._currentPlayerHand).isBust()) {
+            await Board.showStateMessage("BUST", this._currentPlayerHand);
+        }
+        await this.nextHand();
+    }
+
+    async split(): Promise<void> {
+        if (this._state !== State.PLAY || Board.animationPlaying || !this.canSplit()) return;
+
+        const stake = this._player.getBet(this._currentPlayerHand);
+        this._player.splitHand(this._currentPlayerHand);
+        this._player.bet(stake, this._player.getNumberHands() - 1);
+        this.refreshBankroll();
+        this.refreshBet();
+
+        await Board.splitCards();
+        // After splitCards, move chips out of the right panel and into a pile under each hand.
+        const handBets: number[] = [];
+        for (let i = 0; i < this._player.getNumberHands(); i++) {
+            handBets.push(this._player.getBet(i));
+        }
+        Board.distributeChipsToHands(handBets);
+
+        // The split hand still has only one card — deal its second.
+        await this.dealOne("PLAYER", false);
+
+        const hand = this._player.getHand(this._currentPlayerHand);
+        if (hand.isBust() || hand.getScore().includes(21)) {
+            await this.nextHand();
+        } else {
+            this.enableButtons();
+        }
+    }
+
+    async nextHand(): Promise<void> {
         if (this._currentPlayerHand < this._player.getNumberHands() - 1) {
             this._currentPlayerHand++;
             Board.switchHand(this._currentPlayerHand);
+            this.refreshBet();
+
+            // Fresh split hand: still has only one card — deal its second.
+            if (this._player.getHand(this._currentPlayerHand).size() === 1) {
+                await this.dealOne("PLAYER", false);
+            }
+
+            const hand = this._player.getHand(this._currentPlayerHand);
+            if (hand.isBust() || hand.getScore().includes(21)) {
+                await this.nextHand();
+                return;
+            }
             this.enableButtons();
+            return;
         }
-        else {
-            if (this.isGameOver()) await this.pay();
-            else await this.dealerTurn();
-        }
+        await this.dealerTurn();
     }
 
-    async dealerTurn() {
-        if (this._state === State.PLAY && !Board.animationPlaying) {
-            buttons.disableAll();
-            Board.endPlayerTurn();
+    private async dealerTurn(): Promise<void> {
+        // Wait for any in-flight animation before kicking off the dealer's turn.
+        while (Board.animationPlaying) await sleep(50);
 
-            while (!this.dealerBlackjack() && !this.dealerBusts() && Math.min(...this._dealerHand.getScore()) < 17) {
-                let card = this._deck.popCard();
-                await Board.dealCard(card, "DEALER");
-                this._dealerHand.addCard(card);
+        this._state = State.DEALER;
+        this.disableAllButtons();
+        Board.endPlayerTurn();
+
+        if (this._holeHidden) {
+            await Board.revealHoleCard();
+            this._holeHidden = false;
+        }
+
+        // Skip dealer draws if every player hand has already busted.
+        if (this.anyHandAlive()) {
+            while (this._dealerHand.bestScore() < 17 && !this._dealerHand.isBust()) {
+                await this.dealOne("DEALER", false);
             }
-
-            await this.pay();
         }
+
+        await this.pay();
     }
 
-    async pay() {
-        this._state = State.FINISH;
-        let message: string;
-
-        buttons.disableAll();
-
-        let dealerScore = Math.max(...this._dealerHand.getScore().filter(score => score <= 21));
+    private anyHandAlive(): boolean {
         for (let i = 0; i < this._player.getNumberHands(); i++) {
-            let playerScore = Math.max(...this._player.getHand(i).getScore().filter(score => score <= 21));
-
-            if (dealerScore === playerScore) {
-                message = "ÉGALITÉ";
-                this._player.tie(this._currentPlayerHand);
-            }
-            else if (this.playerBlackjack(i)) {
-                this._player.winBlackjack(this._currentPlayerHand);
-            }
-            else if (this.playerBusts(i)) {
-                message = "BRÛLÉ";
-            }
-            else if (this.dealerBlackjack()) {
-                message = "PERDU";
-            }
-            else if (this.dealerBusts()) {
-                message = "GAGNÉ";
-                this._player.winBet(this._currentPlayerHand);
-            }
-            else if (dealerScore > playerScore) {
-                message = "PERDU";
-            }
-            else if (dealerScore < playerScore) {
-                message = "GAGNÉ";
-                this._player.winBet(this._currentPlayerHand);
-            }
-
-            if (message !== undefined) await Board.showStateMessage(message, i);
+            if (!this._player.getHand(i).isBust()) return true;
         }
-
-        setTimeout(() => {
-            this.restart();
-        }, 2000)
-
+        return false;
     }
 
-    async restart() {
+    private async pay(): Promise<void> {
+        this._state = State.FINISH;
+        this.disableAllButtons();
+
+        const dealerScore = this._dealerHand.bestScore();
+        const dealerBust = this._dealerHand.isBust();
+        const dealerBJ = this._dealerHand.isBlackjack();
+        // After a split, a 2-card 21 is just 21, not natural blackjack.
+        const splitOccurred = this._player.getNumberHands() > 1;
+        const outcomes: Array<{ outcome: Outcome; bet: number; payout: number }> = [];
+
+        for (let i = 0; i < this._player.getNumberHands(); i++) {
+            const hand = this._player.getHand(i);
+            const bet = this._player.getBet(i);
+            const playerScore = hand.bestScore();
+            const playerBJ = !splitOccurred && hand.isBlackjack();
+            const playerBust = hand.isBust();
+
+            let outcome: Outcome;
+            let payout = 0; // total returned to bankroll for this hand
+            if (playerBust) {
+                outcome = "BUST";
+            } else if (playerBJ && !dealerBJ) {
+                outcome = "BLACKJACK";
+                this._player.winBlackjack(i);
+                payout = (5 / 2) * bet;
+            } else if (dealerBJ && !playerBJ) {
+                outcome = "LOSE";
+            } else if (playerBJ && dealerBJ) {
+                outcome = "PUSH";
+                this._player.tie(i);
+                payout = bet;
+            } else if (dealerBust) {
+                outcome = "WIN";
+                this._player.winBet(i);
+                payout = 2 * bet;
+            } else if (playerScore > dealerScore) {
+                outcome = "WIN";
+                this._player.winBet(i);
+                payout = 2 * bet;
+            } else if (playerScore < dealerScore) {
+                outcome = "LOSE";
+            } else {
+                outcome = "PUSH";
+                this._player.tie(i);
+                payout = bet;
+            }
+
+            outcomes.push({ outcome, bet, payout });
+            await Board.showStateMessage(outcome, i);
+        }
+
+        this.refreshBankroll();
+
+        // Animate chips per hand. With 1 hand, chips live in the right panel ("bet").
+        // With multiple hands, each hand has its own pile.
+        for (let i = 0; i < outcomes.length; i++) {
+            const { outcome, bet, payout } = outcomes[i];
+            const location: "bet" | number = splitOccurred ? i : "bet";
+            const winnings = payout - bet;
+            if (winnings > 0) {
+                await Board.receiveChipsFromDealer(location, winnings);
+                await sleep(250);
+                await Board.fadeChipsAway(location);
+            } else if (outcome === "PUSH") {
+                await Board.fadeChipsAway(location);
+            } else {
+                await Board.sendChipsToDealer(location);
+            }
+        }
+
+        await sleep(700);
+        await this.restart();
+    }
+
+    private async restart(): Promise<void> {
         this._currentPlayerHand = 0;
         this._dealerHand = new Hand();
         this._player.clearHands();
+        this._round++;
+        this.refreshRound();
+        this.refreshBet();
+        Board.clearChipStack();
         await Board.clearHands();
-        await this.bet();
-    }
-
-    isGameOver(): boolean {
-        for (let i = 0; i < this._player.getNumberHands(); i++) {
-            if (Math.min(...this._player.getHand(i).getScore()) < 21) return false;
+        if (this._deck.getNbCards() < RESHUFFLE_THRESHOLD) {
+            this.initDeck();
         }
-        return true;
+        await this.openBet();
     }
 
-    dealerBlackjack(): boolean {
-        return this._dealerHand.getScore().includes(21);
+    private gameOver(): void {
+        this._state = State.OVER;
+        this.disableAllButtons();
+        requireEl("betPanel").classList.add("hidden");
+        requireEl("gameOver").classList.remove("hidden");
     }
 
-    dealerBusts(): boolean {
-        return Math.min(...this._dealerHand.getScore()) > 21;
+    async newGame(): Promise<void> {
+        requireEl("gameOver").classList.add("hidden");
+        this._round = 1;
+        this._currentPlayerHand = 0;
+        this._dealerHand = new Hand();
+        this._player = new Player();
+        this._player.setBankroll(STARTING_BANKROLL);
+        this.initDeck();
+        this.refreshBankroll();
+        this.refreshBet();
+        this.refreshRound();
+        Board.clearChipStack();
+        await Board.clearHands();
+        await this.openBet();
     }
 
-    playerBlackjack(hand: number): boolean {
-        return this._player.getHand(hand).getScore().includes(21);
-    }
+    // ---------- Hover score display ----------
 
-    playerBusts(hand: number): boolean {
-        return Math.min(...this._player.getHand(hand).getScore()) > 21;
-    }
+    displayScore(handEl: HTMLElement): void {
+        const scoreEl = requireEl("score");
+        const parent = handEl.parentElement;
+        if (!parent) return;
 
-    isFinished(): boolean {
-        return this._state === State.FINISH;
-    }
-
-    isPlaying(): boolean {
-        return (this._state === State.PLAY || this._state === State.DEAL);
-    }
-
-    displayScore(hand: HTMLElement) {
-        let score = document.getElementById("score") as HTMLElement;
-        let parent = hand.parentElement;
+        let scores: number[];
         if (parent.id === "dealerHand") {
-            let displayScore = this._dealerHand.getScore();
-            if (displayScore.length > 1) {
-                score.textContent = (Math.min(...displayScore) > 21 ? Math.min(...displayScore).toString() : displayScore.filter(score => score <= 21).join(" ou "));
+            if (this._holeHidden) {
+                const upcard = this._dealerHand.getCards()[0];
+                if (!upcard) return;
+                scores = upcard.isAce() ? [1, 11] : [upcard.getScore()];
+            } else {
+                scores = this._dealerHand.getScore();
             }
-            else {
-                score.textContent = displayScore.join();
-            }
-            score.style.transform = "scale(1)";
+        } else if (parent.id === "playerHand") {
+            const idx = parseInt(handEl.dataset.hand ?? "0", 10);
+            scores = this._player.getHand(idx).getScore();
+        } else {
+            return;
         }
-        else if (parent.id === "playerHand") {
-            let displayScore = this._player.getHand(parseInt(hand.dataset.hand)).getScore();
-            if (displayScore.length > 1) {
-                score.textContent = (Math.min(...displayScore) > 21 ? Math.min(...displayScore).toString() : displayScore.filter(score => score <= 21).join(" ou "));
-            }
-            else {
-                score.textContent = displayScore.join();
-            }
-            score.style.transform = "scale(1)";
-            score.style.transform = "scale(1)";
+
+        let text: string;
+        if (scores.length > 1) {
+            const valid = scores.filter((s) => s <= 21);
+            text = valid.length > 0 ? valid.join(" or ") : Math.min(...scores).toString();
+        } else {
+            text = scores[0].toString();
         }
+
+        scoreEl.textContent = text;
+        scoreEl.classList.add("show");
     }
 
-    hideScore() {
-        let score = document.getElementById("score") as HTMLElement;
-        score.textContent = "";
-        score.style.transform = "scale(0)";
+    hideScore(): void {
+        const scoreEl = requireEl("score");
+        scoreEl.textContent = "";
+        scoreEl.classList.remove("show");
     }
-
 }

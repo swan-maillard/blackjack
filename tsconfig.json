@@ -1,13 +1,18 @@
 {
   "compilerOptions": {
     "outDir": "./out/",
-    "noImplicitAny": true,
-    "module": "es6",
-    "target": "es5",
-    "jsx": "react",
-    "allowJs": true,
+    "module": "es2020",
+    "target": "es2018",
     "moduleResolution": "node",
     "strict": true,
-    "strictNullChecks": false
-  }
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["dom", "es2018"]
+  },
+  "include": ["src/**/*", "global.d.ts"]
 }

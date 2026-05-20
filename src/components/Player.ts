@@ -12,12 +12,12 @@ export default class Player {
         this._bankroll = 0;
     }
 
-    addCard(card : Card | undefined, hand: number): void {
+    addCard(card: Card | undefined, hand: number): void {
         this.getHand(hand).addCard(card);
     }
 
     getHand(hand: number): Hand {
-        return (hand < this._hands.length ? this._hands[hand] : this._hands[0]);
+        return hand < this._hands.length ? this._hands[hand] : this._hands[0];
     }
 
     getNumberHands(): number {
@@ -25,13 +25,12 @@ export default class Player {
     }
 
     splitHand(hand: number): void {
-        let cards = this.getHand(hand).getCards();
-        if (cards.length === 2) {
-            this._hands[hand] = new Hand();
-            this._hands.push(new Hand());
-            this._hands[hand].addCard(cards[0]);
-            this._hands[this._hands.length-1].addCard(cards[1]);
-        }
+        const cards = this.getHand(hand).getCards();
+        if (cards.length !== 2) return;
+        this._hands[hand] = new Hand();
+        this._hands.push(new Hand());
+        this._hands[hand].addCard(cards[0]);
+        this._hands[this._hands.length - 1].addCard(cards[1]);
     }
 
     clearHands(): void {
@@ -39,7 +38,7 @@ export default class Player {
         this._bets = [];
     }
 
-    setBankroll(amount: number) {
+    setBankroll(amount: number): void {
         this._bankroll = Math.max(0, amount);
     }
 
@@ -47,31 +46,34 @@ export default class Player {
         return this._bankroll;
     }
 
-    bet(amount: number, hand: number): void {
-        amount = Math.max(Math.min(this._bankroll, amount), 0);
+    bet(amount: number, hand: number): number {
+        const accepted = Math.max(Math.min(this._bankroll, amount), 0);
         if (this._bets[hand] === undefined) this._bets[hand] = 0;
-
-        this._bets[hand] += amount;
-        this._bankroll -= amount;
+        this._bets[hand] += accepted;
+        this._bankroll -= accepted;
+        return accepted;
     }
 
     getBet(hand: number): number {
-        return this._bets[hand];
+        return this._bets[hand] ?? 0;
+    }
+
+    refundBet(hand: number): number {
+        const amount = this._bets[hand] ?? 0;
+        this._bankroll += amount;
+        this._bets[hand] = 0;
+        return amount;
     }
 
     winBet(hand: number): void {
-        console.log(this._bets);
-        this._bankroll += 2*this._bets[hand];
+        this._bankroll += 2 * this.getBet(hand);
     }
 
     winBlackjack(hand: number): void {
-        console.log(this._bets);
-        this._bankroll += 5/2*this._bets[hand];
+        this._bankroll += (5 / 2) * this.getBet(hand);
     }
 
     tie(hand: number): void {
-        console.log(this._bets);
-        this._bankroll += this._bets[hand];
+        this._bankroll += this.getBet(hand);
     }
-
 }

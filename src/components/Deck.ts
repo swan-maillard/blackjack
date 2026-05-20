@@ -1,7 +1,7 @@
 import Card from "./Card";
 
 export default class Deck {
-    private _cards: Card[];
+    private readonly _cards: Card[];
 
     constructor() {
         this._cards = [];
@@ -12,19 +12,17 @@ export default class Deck {
     }
 
     shuffle(): void {
-        this._cards = this._cards.sort((a, b) => 0.5 - Math.random());
+        for (let i = this._cards.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [this._cards[i], this._cards[j]] = [this._cards[j], this._cards[i]];
+        }
     }
 
     popCard(): Card | undefined {
         return this._cards.pop();
     }
 
-    isEmpty(): boolean {
-        return this._cards.length === 0;
-    }
-
     getNbCards(): number {
         return this._cards.length;
     }
-
 }
